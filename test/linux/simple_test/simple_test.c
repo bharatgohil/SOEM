@@ -16,13 +16,14 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <unistd.h>
 
 #include "ethercat.h"
 
 #define EC_TIMEOUTMON 500
 #define SLAVEINDEX                  1
 char IOmap[4096];
-OSAL_THREAD_HANDLE thread1;
+OSAL_THREAD_HANDLE thread1,thread2;
 int expectedWKC;
 boolean needlf;
 volatile int wkc;
@@ -339,6 +340,14 @@ int setup_drive(uint16_t slave) {
 
 }
 
+OSAL_THREAD_FUNC motion_ctrl( void *ptr ) {
+   (void)ptr;                  /* Not used */
+   while(1) {
+      sleep(2);
+      servo_out->tgt_pos = servo_in->act_pos + 100000;
+   }
+}
+
 void simpletest(char *ifname)
 {
     int i,  oloop, iloop, chk,cnt;
@@ -369,7 +378,7 @@ void simpletest(char *ifname)
             ec_config_map(&IOmap);
          }
 
-         //ec_configdc();
+         ec_configdc();
          ec_readstate();
          printf("Slaves mapped, state to SAFE_OP.\n");
          /* wait for all slaves to reach SAFE_OP state */
@@ -414,36 +423,49 @@ void simpletest(char *ifname)
          while (chk-- && (ec_slave[0].state != EC_STATE_OPERATIONAL));
          if (ec_slave[0].state == EC_STATE_OPERATIONAL )
          {
-            SOEM_Write8(0x6060,0x00,9);
+            SOEM_Write8(0x6060,0x00,8);
+
             servo_out->ctrl_word = 6;
             ec_send_processdata();
             wkc = ec_receive_processdata(EC_TIMEOUTRET);
+
             servo_out->ctrl_word = 7;
             ec_send_processdata();
             wkc = ec_receive_processdata(EC_TIMEOUTRET);
+
             servo_out->ctrl_word = 0x0F;
             ec_send_processdata();
             wkc = ec_receive_processdata(EC_TIMEOUTRET);
-            servo_out->tgt_vel = 0x100000;
-            ec_send_processdata();
-            wkc = ec_receive_processdata(EC_TIMEOUTRET);
-            servo_out->tgt_pos = 100000;
-            ec_send_processdata();
-            wkc = ec_receive_processdata(EC_TIMEOUTRET);
 
-            printf("State %d status_word %x\n\r",ec_slave[1].state, servo_in->sts_word);
-            printf("Operational state reached for all slaves.\n");
-            inOP = TRUE;
-                /* cyclic loop */
-            for(;;)
-            {
-               //SOEM_Write8(0x6060,0x00,3);
-               //servo_out->tgt_pos = 100000;
-               servo_out->tgt_vel = 0x100000;
+            //uint32_t temp_cnt = 10000;
+            osal_thread_create(&thread2, 123, &motion_ctrl, NULL);
+            servo_out->tgt_pos = servo_in->act_pos + 100000;
+
+            /*while(temp_cnt--) {
+
                ec_send_processdata();
                wkc = ec_receive_processdata(EC_TIMEOUTRET);
-               if (servo_in->act_pos <= servo_out->tgt_pos)
-                  printf("act_vel %d act_pos %d sts_word %x\n",servo_in->act_vel, servo_in->act_pos, servo_in->sts_word); 
+
+               usleep(500);
+
+            }
+
+            printf("State %d status_word %x\n\r",ec_slave[1].state, servo_in->sts_word);
+            printf("act_vel %d act_pos %d sts_word %x\n",servo_in->act_vel, servo_in->act_pos, servo_in->sts_word); */
+            printf("Operational state reached for all slaves.\n");
+
+            inOP = TRUE;
+            /* cyclic loop */
+            for(;;)
+            {
+
+               //SOEM_Write8(0x6060,0x00,3);
+               //servo_out->tgt_pos = 100000;
+               //servo_out->tgt_vel = 0x100000;
+               ec_send_processdata();
+               wkc = ec_receive_processdata(EC_TIMEOUTRET);
+               //if (servo_in->act_pos <= servo_out->tgt_pos)
+               //   printf("act_vel %d act_pos %d sts_word %x\n",servo_in->act_vel, servo_in->act_pos, servo_in->sts_word); 
                /*     if(wkc >= expectedWKC)
                     {
                         printf("Processdata cycle %4d, WKC %d , O:", i=0, wkc);
@@ -461,7 +483,7 @@ void simpletest(char *ifname)
                         printf(" T:%"PRId64"\r",ec_DCtime);
                         needlf = TRUE;
                     }*/
-                  osal_usleep(500);
+                  osal_usleep(1000);
 		            //IOmap[0] = ~IOmap[0];
 
                 }
